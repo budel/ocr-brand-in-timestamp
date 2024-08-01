@@ -15,14 +15,17 @@ from scenedetect import ContentDetector, detect, split_video_ffmpeg
 from scenedetect.frame_timecode import FrameTimecode
 from tqdm import tqdm
 
-# TODO: incorporate this:
-MIN_SECONDS_PER_SCENE = 60
+MEAN_FRAME_DURATION = 3
+MIN_SECONDS_PER_SCENE = 40
 
 
 def main():
     load_dotenv()
     videos_path = os.getenv("VIDEOS_PATH")
     for video_file in sorted(os.listdir(videos_path)):
+        if not "progressive.mp4" in video_file:
+            continue
+        print(video_file)
         out_path = os.path.join(videos_path, Path(video_file).stem + "_out.pkl")
         if not os.path.isfile(out_path):
             scene_list = compute_scene_list(
@@ -33,21 +36,24 @@ def main():
             with open(out_path, "rb") as file:
                 scene_list = pickle.load(file)
         filtered_scene_list, dates = filter_scenes(scene_list)
+        filtered_scene_list, dates = merge_short_scenes(filtered_scene_list, dates)
         print_scenes(filtered_scene_list, dates)
         split_video_ffmpeg(
-            video_file,
+            os.path.join(videos_path, video_file),
             filtered_scene_list,
             output_dir=videos_path,
-            output_file_template="$VIDEO_NAME $SCENE_NUMBER.mp4",
+            output_file_template="$VIDEO_NAME+$SCENE_NUMBER.mp4",
             arg_override="-c copy",
             show_progress=True,
         )
-        rename_split_files(video_file, filtered_scene_list, dates)
+        rename_split_files(
+            os.path.join(videos_path, video_file), filtered_scene_list, dates
+        )
 
 
 def rename_split_files(video_file, filtered_scene_list, dates):
-    for f in sorted(glob.glob(f"{video_file[:-4]} *")):
-        f_split = f.split(" ")
+    for f in sorted(glob.glob(f"{video_file[:-4]}+*")):
+        f_split = f.split("+")
         scene_idx = int(f_split[1][:-4]) - 1
         if scene_idx > 0:
             start_date = dates[scene_idx]
@@ -110,7 +116,7 @@ def ocr_video(video_file, scene_list):
             roi = frame[roi_y : roi_y + roi_h, roi_x : roi_x + roi_w]
             rois.append(roi.astype(np.float32))
 
-            if len(rois) >= fps * 3:  # 3 seconds
+            if len(rois) >= fps * MEAN_FRAME_DURATION:
                 mean_roi = np.mean(rois, axis=0).astype(np.uint8)
                 rois = []
                 gray_roi = cv2.cvtColor(mean_roi, cv2.COLOR_BGR2GRAY)
@@ -187,6 +193,35 @@ def filter_scenes(scene_list):
     last_scene_[1] = FrameTimecode(end_t, scene_list[-1][1].get_framerate())
     filtered_scene_list[-1] = tuple(last_scene_)
     return filtered_scene_list, dates
+
+
+def merge_short_scenes(scene_list, dates):
+    merged_scene_list = []
+    removed_indices = []
+    for i, scene in enumerate(scene_list):
+        if (
+            get_scene_len(scene_list, i)
+            >= MIN_SECONDS_PER_SCENE * scene[0].get_framerate()
+        ):
+            merged_scene_list.append(scene)
+        else:
+            # check if previous or following is shorter
+            if get_scene_len(scene_list, i - 1) < get_scene_len(scene_list, i + 1):
+                # attach to previous
+                scene_ = list(scene)
+                scene_[0] = merged_scene_list[i - 1][0]
+                merged_scene_list[i - 1] = tuple(scene_)
+            else:
+                # attach to following
+                scene_ = list(scene)
+                scene_[1] = scene_list[i + 1][1]
+                scene_list[i + 1] = tuple(scene_)
+            removed_indices.append(i)
+
+    for i in removed_indices[::-1]:
+        del dates[i]
+
+    return merged_scene_list, dates
 
 
 def print_scenes(scene_list, dates):
