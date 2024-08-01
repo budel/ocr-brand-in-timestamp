@@ -21,26 +21,33 @@ MIN_SECONDS_PER_SCENE = 60
 
 def main():
     load_dotenv()
-    video_path = os.getenv("VIDEO_PATH")
-    out_path = os.path.join(Path(video_path).parent, Path(video_path).stem + "_out.pkl")
-    if not os.path.isfile(out_path):
-        scene_list = compute_scene_list(
-            video_path,
-            out_path,
+    videos_path = os.getenv("VIDEOS_PATH")
+    for video_path in sorted(os.listdir(videos_path)):
+        out_path = os.path.join(
+            Path(video_path).parent, Path(video_path).stem + "_out.pkl"
         )
-    else:
-        with open(out_path, "rb") as file:
-            scene_list = pickle.load(file)
-    filtered_scene_list, dates = filter_scenes(scene_list)
-    print_scenes(filtered_scene_list, dates)
-    split_video_ffmpeg(
-        video_path,
-        filtered_scene_list,
-        output_dir=Path(video_path).parent,
-        output_file_template="$VIDEO_NAME $SCENE_NUMBER.mp4",
-        arg_override="-c copy",
-        show_progress=True,
-    )
+        if not os.path.isfile(out_path):
+            scene_list = compute_scene_list(
+                video_path,
+                out_path,
+            )
+        else:
+            with open(out_path, "rb") as file:
+                scene_list = pickle.load(file)
+        filtered_scene_list, dates = filter_scenes(scene_list)
+        print_scenes(filtered_scene_list, dates)
+        split_video_ffmpeg(
+            video_path,
+            filtered_scene_list,
+            output_dir=Path(video_path).parent,
+            output_file_template="$VIDEO_NAME $SCENE_NUMBER.mp4",
+            arg_override="-c copy",
+            show_progress=True,
+        )
+        rename_split_files(video_path, filtered_scene_list, dates)
+
+
+def rename_split_files(video_path, filtered_scene_list, dates):
     for f in sorted(glob.glob(f"{video_path[:-4]} *")):
         f_split = f.split(" ")
         scene_idx = int(f_split[1][:-4]) - 1
@@ -165,25 +172,22 @@ def filter_scenes(scene_list):
         if len(scene) < 3:
             continue
         else:
-            if filtered_scene_list:
-                tmp = list(filtered_scene_list[-1])
-                tmp[1] = FrameTimecode(
+            scene_ = list(scene)
+            if filtered_scene_list == []:
+                scene_[0] = FrameTimecode("00:00:00.000", scene[0].get_framerate())
+            else:
+                previous_scene_ = list(filtered_scene_list[-1])
+                previous_scene_[1] = FrameTimecode(
                     scene[0].get_timecode(), scene[0].get_framerate()
                 )
-                filtered_scene_list[-1] = tuple(tmp)
+                filtered_scene_list[-1] = tuple(previous_scene_)
 
-                tmp = list(scene)
-                dates.append(tmp.pop())
-                filtered_scene_list.append(tuple(tmp))
-            else:  # empty list
-                tmp = list(scene)
-                tmp[0] = FrameTimecode("00:00:00.000", scene[0].get_framerate())
-                dates.append(tmp.pop())
-                filtered_scene_list.append(tuple(tmp))
+            dates.append(scene_.pop())
+            filtered_scene_list.append(tuple(scene_))
     end_t = scene_list[-1][1].get_timecode()
-    tmp = list(filtered_scene_list[-1])
-    tmp[1] = FrameTimecode(end_t, scene_list[-1][1].get_framerate())
-    filtered_scene_list[-1] = tuple(tmp)
+    last_scene_ = list(filtered_scene_list[-1])
+    last_scene_[1] = FrameTimecode(end_t, scene_list[-1][1].get_framerate())
+    filtered_scene_list[-1] = tuple(last_scene_)
     return filtered_scene_list, dates
 
 
