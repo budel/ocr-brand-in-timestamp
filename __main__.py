@@ -22,13 +22,11 @@ MIN_SECONDS_PER_SCENE = 60
 def main():
     load_dotenv()
     videos_path = os.getenv("VIDEOS_PATH")
-    for video_path in sorted(os.listdir(videos_path)):
-        out_path = os.path.join(
-            Path(video_path).parent, Path(video_path).stem + "_out.pkl"
-        )
+    for video_file in sorted(os.listdir(videos_path)):
+        out_path = os.path.join(videos_path, Path(video_file).stem + "_out.pkl")
         if not os.path.isfile(out_path):
             scene_list = compute_scene_list(
-                video_path,
+                os.path.join(videos_path, video_file),
                 out_path,
             )
         else:
@@ -37,57 +35,57 @@ def main():
         filtered_scene_list, dates = filter_scenes(scene_list)
         print_scenes(filtered_scene_list, dates)
         split_video_ffmpeg(
-            video_path,
+            video_file,
             filtered_scene_list,
-            output_dir=Path(video_path).parent,
+            output_dir=videos_path,
             output_file_template="$VIDEO_NAME $SCENE_NUMBER.mp4",
             arg_override="-c copy",
             show_progress=True,
         )
-        rename_split_files(video_path, filtered_scene_list, dates)
+        rename_split_files(video_file, filtered_scene_list, dates)
 
 
-def rename_split_files(video_path, filtered_scene_list, dates):
-    for f in sorted(glob.glob(f"{video_path[:-4]} *")):
+def rename_split_files(video_file, filtered_scene_list, dates):
+    for f in sorted(glob.glob(f"{video_file[:-4]} *")):
         f_split = f.split(" ")
         scene_idx = int(f_split[1][:-4]) - 1
         if scene_idx > 0:
             start_date = dates[scene_idx]
         else:
-            start_date = datetime.strptime(Path(video_path).stem[:8], "%y.%m.%d")
+            start_date = datetime.strptime(Path(video_file).stem[:8], "%y.%m.%d")
         if scene_idx < len(filtered_scene_list) - 1:
             end_date = dates[scene_idx + 1]
         else:
-            end_date = datetime.strptime(Path(video_path).stem[9:17], "%y.%m.%d")
+            end_date = datetime.strptime(Path(video_file).stem[9:17], "%y.%m.%d")
         name = start_date.strftime("%Y-%m-%d") + "_-_" + end_date.strftime("%Y-%m-%d")
         out_filename = os.path.join(Path(f).parent, f"{name}.mp4")
         os.rename(f, out_filename)
 
 
-def compute_scene_list(video_path, out_path):
-    pickle_file_path = Path(video_path).with_suffix(".pkl")
+def compute_scene_list(video_file, out_path):
+    pickle_file_path = Path(video_file).with_suffix(".pkl")
     if os.path.isfile(pickle_file_path):
         with open(pickle_file_path, "rb") as file:
             scene_list = pickle.load(file)
     else:
-        scene_list = detect(video_path, ContentDetector(), show_progress=True)
+        scene_list = detect(video_file, ContentDetector(), show_progress=True)
         with open(pickle_file_path, "wb") as file:
             pickle.dump(scene_list, file)
 
-    scene_list = ocr_video(video_path, scene_list)
+    scene_list = ocr_video(video_file, scene_list)
     with open(out_path, "wb") as file:
         pickle.dump(scene_list, file)
     return scene_list
 
 
-def ocr_video(video_path, scene_list):
+def ocr_video(video_file, scene_list):
     api = tesserocr.PyTessBaseAPI(
         path="/usr/share/tessdata/",
         variables={"tessedit_char_whitelist": "0123456789."},
         psm=tesserocr.PSM.SINGLE_BLOCK,
     )
 
-    cap = cv2.VideoCapture(video_path)
+    cap = cv2.VideoCapture(video_file)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = int(cap.get(cv2.CAP_PROP_FPS))
 
@@ -97,8 +95,8 @@ def ocr_video(video_path, scene_list):
     scene_idx = 0
     rois = []
     start_frame = scene_list[scene_idx][0].get_frames()
-    last_timecode = datetime.strptime(Path(video_path).stem[:8], "%y.%m.%d")
-    end_timecode = datetime.strptime(Path(video_path).stem[9:17], "%y.%m.%d")
+    last_timecode = datetime.strptime(Path(video_file).stem[:8], "%y.%m.%d")
+    end_timecode = datetime.strptime(Path(video_file).stem[9:17], "%y.%m.%d")
     with tqdm(total=total_frames, desc="Processing Video", unit="frame") as pbar:
         while cap.isOpened():
             ret, frame = cap.read()
