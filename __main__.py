@@ -84,7 +84,7 @@ def ocr_video(video_path, scene_list):
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = int(cap.get(cv2.CAP_PROP_FPS))
 
-    roi_x, roi_y, roi_w, roi_h = 60, 380, 280, 196
+    roi_x, roi_y, roi_w, roi_h = 60, 380, 280, 160
 
     frame_idx = 0
     scene_idx = 0
@@ -109,7 +109,8 @@ def ocr_video(video_path, scene_list):
                 mean_roi = np.mean(rois, axis=0).astype(np.uint8)
                 rois = []
                 gray_roi = cv2.cvtColor(mean_roi, cv2.COLOR_BGR2GRAY)
-                gray_roi = cv2.resize(gray_roi, (314, 220))
+                new_size = (int(1.2 * gray_roi.shape[1]), int(1.2 * gray_roi.shape[0]))
+                gray_roi = cv2.resize(gray_roi, new_size)
                 inv_roi = 255 - gray_roi
                 # cv2.imwrite("gray_roi.png", inv_roi)
                 sobel_x = cv2.Sobel(inv_roi, cv2.CV_64F, 1, 0, ksize=3)
