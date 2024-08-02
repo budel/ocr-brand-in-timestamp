@@ -163,7 +163,8 @@ def ocr_video(video_file, scene_list):
                         break
 
                 scene_idx += 1
-                start_frame = scene_list[scene_idx][0].get_frames()
+                if scene_idx < len(scene_list):
+                    start_frame = scene_list[scene_idx][0].get_frames()
 
     cap.release()
     return scene_list
@@ -196,32 +197,31 @@ def filter_scenes(scene_list):
 
 
 def merge_short_scenes(scene_list, dates):
-    merged_scene_list = []
-    removed_indices = []
-    for i, scene in enumerate(scene_list):
+    i = 0
+    while i < len(scene_list):
+        scene = scene_list[i]
         if (
             get_scene_len(scene_list, i)
-            >= MIN_SECONDS_PER_SCENE * scene[0].get_framerate()
+            < MIN_SECONDS_PER_SCENE * scene[0].get_framerate()
         ):
-            merged_scene_list.append(scene)
-        else:
             # check if previous or following is shorter
             if get_scene_len(scene_list, i - 1) < get_scene_len(scene_list, i + 1):
                 # attach to previous
                 scene_ = list(scene)
-                scene_[0] = merged_scene_list[i - 1][0]
-                merged_scene_list[i - 1] = tuple(scene_)
+                scene_[0] = scene_list[i - 1][0]
+                scene_list[i - 1] = tuple(scene_)
+                del dates[i - 1]
             else:
                 # attach to following
                 scene_ = list(scene)
                 scene_[1] = scene_list[i + 1][1]
                 scene_list[i + 1] = tuple(scene_)
-            removed_indices.append(i)
+                del dates[i + 1]
+            del scene_list[i]
+            i -= 1
+        i += 1
 
-    for i in removed_indices[::-1]:
-        del dates[i]
-
-    return merged_scene_list, dates
+    return scene_list, dates
 
 
 def print_scenes(scene_list, dates):
